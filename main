@@ -1,0 +1,205 @@
+import numpy as np
+from sklearn.datasets import load_iris
+from sklearn.preprocessing import MinMaxScaler
+import matplotlib.pyplot as plt
+
+def load_data():
+    """download iris data"""
+    iris = load_iris()
+    data = iris.data
+    label = iris.target
+    label = label.reshape(150, 1)  # Transpose into a column of vectors
+    return data, label
+
+
+def shuffle(Z):
+    """shuffle data"""
+    index = [i for i in range(len(Z))]
+    np.random.seed(20)
+    np.random.shuffle(index)  # use Index to shuffle
+    Z = Z[index, :]
+    return Z
+
+
+def main():
+    X, Y = load_data()  # X,Y are data and label
+    X = shuffle(X)
+    Y = shuffle(Y)
+    Y = Y.reshape(150, 1)
+
+    """normalize data"""
+    scaler = MinMaxScaler(feature_range=(0, 1))
+    X = scaler.fit_transform(X)
+    # Xmin = np.min(X)
+    # Xmax = np.max(X)
+    # X = (X - Xmin) / (Xmax - Xmin)
+
+    accuracy_sum = 0
+
+    """cross-validation"""
+    for j in range(5):
+        x_train, y_train, x_test, y_test = split_data(j, X, Y)
+
+        """Start training, hidden layer 20 nodes, 500 iterations, learning rate 0.001"""
+        W, cost_list = NeuralNetwork(x_train, y_train, h_nodes=20, iterations=500, learning_rate=0.001)
+        A2, ZA = forward_propagation(x_train.T, W)  # 3*120
+        train_count = 0
+        train_output = np.argmax(A2, axis=0)  # Returns the maximum index of each column, row vector
+        train_output = train_output.reshape(120, 1)
+        for i in range(0, 120):
+            if train_output[i, 0] == y_train[i, 0]:
+                train_count += 1
+        train_accuracy = 100 * train_count / 120
+        print("The accuracy of number %d training set is：%.2f %%" % (j + 1, train_accuracy))
+        
+        """Draw a cost reduction curve"""
+        plt.plot(cost_list)
+        plt.xlabel("iterations")
+        plt.ylabel("Cost")
+        plt.show()
+
+        """Start test and calculate the correct rate"""
+        A2, ZA = forward_propagation(x_test.T, W)  # 3*30
+        count = 0
+        output = np.argmax(A2, axis=0)  
+        output = output.reshape(30, 1)
+        for i in range(0, 30):
+            if output[i, 0] == y_test[i, 0]:
+                count += 1
+        accuracy = 100 * (count / 30)
+        print("The accuracy of number %d testing set is：%.2f %%" % (j + 1, accuracy))
+        accuracy_sum = accuracy + accuracy_sum
+
+    print("The overall accuracy rate is：%.2f %%" % (accuracy_sum / 5))
+
+
+def NeuralNetwork(X, Y, h_nodes, iterations, learning_rate):
+    onehot_Y_input = Onehot(Y)  # 3*120
+    X_input = X.T  # 4*120
+    W = initialize_W(h_nodes)
+    cost_list = []
+    for k in range(0, iterations):
+
+        cost_sum = 0
+        for i in range(0, 120):
+            X = X_input[:, i]
+            onehot_Y = onehot_Y_input[:, i]
+            X = X.reshape(4, 1)
+
+            onehot_Y = onehot_Y.reshape(3, 1)
+
+            A2, ZA = forward_propagation(X, W)
+
+            cost = 1 / 2 * np.sum((A2 - onehot_Y)**2)
+            cost_sum = cost_sum + cost
+
+            dW = backward_propagation(X, onehot_Y, ZA, W)
+
+            W = update_W(W, dW, learning_rate)
+
+        cost_avg = cost_sum / 120
+        cost_list.append(cost_avg)
+
+    return W, cost_list
+
+
+def Onehot(Y):
+    """replace 0, 1, 2 in Y with [1, 0, 0][0, 1, 0][0, 0, 1])"""
+    onehot_Y = []
+    for i in range(0, 120):
+        if Y[i, :] == 0:
+            onehot_Y.append([1, 0, 0])
+        elif Y[i, :] == 1:
+            onehot_Y.append([0, 1, 0])
+        elif Y[i, :] == 2:
+            onehot_Y.append([0, 0, 1])
+    onehot_Y = np.array(onehot_Y)
+    onehot_Y = onehot_Y.T
+    return onehot_Y
+
+
+def initialize_W(h_nodes):
+
+    b1 = np.random.normal(0.0, pow(0.3, -0.5), (h_nodes, 1))
+    b2 = np.random.normal(0.0, pow(0.3, -0.5), (3, 1))
+    W1 = np.random.normal(0.0, pow(0.75, -0.5), (4, h_nodes))
+    W2 = np.random.normal(0.0, pow(0.75, -0.5), (h_nodes, 3))
+
+    W = {'W1': W1, 'W2': W2, 'b1': b1, 'b2': b2}
+    return W
+
+
+def forward_propagation(X, W):
+    W1 = W['W1']          # (4,20)
+    W2 = W['W2']          # (20,3)
+    b1 = W['b1']
+    b2 = W['b2']
+    A1 = np.dot(W1.T, X) + b1  # (20,1)
+    Z1 = np.tanh(A1)      # (20,1)
+    A2 = np.tanh(np.dot(W2.T, Z1) + b2)  # (3,1)  #A2 is yk, in order to prevent confusion with y
+    ZA = {'Z1': Z1, 'A1': A1, 'A2': A2}
+    return A2, ZA
+
+
+def backward_propagation(X, onehot_Y, ZA, W):
+    W2 = W['W2']
+    Z1 = ZA['Z1']
+    A2 = ZA['A2']
+    dW2 = np.outer((A2-onehot_Y), Z1)
+    dA2 = A2-onehot_Y
+    db2 = dA2
+    dA1 = (1-Z1**2)*np.dot(W2, (A2-onehot_Y))
+    dW1 = np.outer((1-Z1**2)*np.dot(W2, (A2-onehot_Y)), X)
+    db1 = dA1
+    dW = {'dW1': dW1, 'dW2': dW2, 'db1': db1, 'db2': db2}
+    return dW
+
+
+def update_W(W, dW, learning_rate):
+    W1 = W['W1']
+    W2 = W['W2']
+    b1 = W['b1']
+    b2 = W['b2']
+    dW1 = dW['dW1']
+    dW2 = dW['dW2']
+    db1 = dW['db1']
+    db2 = dW['db2']
+    W1 = W1 - learning_rate * dW1.T
+    W2 = W2 - learning_rate * dW2.T
+    b1 = b1 - learning_rate * db1
+    b2 = b2 - learning_rate * db2
+    W = {'W1': W1, 'W2': W2, 'b1': b1, 'b2': b2}
+    return W
+
+
+def split_data(j, X, Y):
+    if j == 0:
+        x_train = X[0:120, :]
+        y_train = Y[0:120, :]
+        x_test = X[120:150, :]
+        y_test = Y[120:150, :]
+    elif j == 1:
+        x_train = X[30:150, :]
+        y_train = Y[30:150, :]
+        x_test = X[0:30, :]
+        y_test = Y[0:30, :]
+    elif j == 2:
+        x_train = np.vstack((X[0:30, :], X[60:150, :]))
+        y_train = np.vstack((Y[0:30, :], Y[60:150, :]))
+        x_test = X[30:60, :]
+        y_test = Y[30:60, :]
+    elif j == 3:
+        x_train = np.vstack((X[0:60, :], X[90:150, :]))
+        y_train = np.vstack((Y[0:60, :], Y[90:150, :]))
+        x_test = X[60:90, :]
+        y_test = Y[60:90, :]
+    elif j == 4:
+        x_train = np.vstack((X[0:90, :], X[120:150, :]))
+        y_train = np.vstack((Y[0:90, :], Y[120:150, :]))
+        x_test = X[90:120, :]
+        y_test = Y[90:120, :]
+    return x_train, y_train, x_test, y_test
+
+
+if __name__ == '__main__':
+    main()
